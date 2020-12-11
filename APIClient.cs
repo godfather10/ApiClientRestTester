@@ -4,7 +4,10 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.WebSockets;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace APIClientPackage
@@ -18,22 +21,49 @@ namespace APIClientPackage
 
         private LogInformation _logTasks = null;
 
-        private List<string> _commandLst = new List<string>();
+        private List<string> _commandGETLst = new List<string>();
+
+        private List<string> _commandPOSTLst = new List<string>();
         
         private List<string> _configurationLst = new List<string>();
 
         private HttpClient _client = null;
 
+        private ClientWebSocket _ws = null;
+
+        private CancellationTokenSource _wsCts = null;
+
+        private bool _initWs = false;
+
         private string _webSocketPath = "";
 
         private string _restPath = "";
+
+        private string certificateFileName = "";
 
         public APIClient(ref LogInformation log, ref LogInformation logTasks)
         {
             _log = log;
             _logTasks = logTasks;            
-            LoadConfiguration();
+            LoadConfiguration();            
             SSLClient();
+        }
+
+        private async Task<int> WebSocketInitAsync()
+        {
+            try
+            {
+                _ws = new ClientWebSocket();
+                Uri uri = new Uri(_webSocketPath);
+                _wsCts = new CancellationTokenSource();
+                 await _ws.ConnectAsync(uri, _wsCts.Token);
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                _log.Error(ex.Message);
+                return -1;
+            }
         }
 
         private int SSLClient()
@@ -48,7 +78,14 @@ namespace APIClientPackage
                 
                 // Pass the handler to httpclient(from you are calling api)
                 _client = new HttpClient(clientHandler);
-                
+
+                //X509Certificate2 cert = new X509Certificate2(certificateFileName, "", X509KeyStorageFlags.MachineKeySet);
+                //_ws.SslConfiguration.ClientCertificateSelectionCallback =
+                //(sender,targethost,localCertificates, remoteCertificate,acceptableIssuers) =>
+                //{
+                //    return cert;
+                //};
+
                 return 0;
             }
             catch (Exception ex)
@@ -77,8 +114,11 @@ namespace APIClientPackage
         {
             try
             {
-                _commandLst.Clear();
-                _commandLst = File.ReadAllLines("CommandsConfiguration.cfg").ToList();
+                _commandGETLst.Clear();
+                _commandGETLst = File.ReadAllLines("CommandsGETConfiguration.cfg").ToList();
+
+                _commandPOSTLst.Clear();
+                _commandPOSTLst = File.ReadAllLines("CommandsPOSTConfiguration.cfg").ToList();
             }
             catch (Exception ex)
             {
@@ -117,9 +157,15 @@ namespace APIClientPackage
                 Console.WriteLine("# # # # # # # # # # # # # # # # # # # # # # # # #");
                 Console.WriteLine("# # # MENU COMMANDS");
                 int counter = 0;
-                foreach(string val in _commandLst)
+                foreach(string val in _commandGETLst)
                 {
-                    Console.WriteLine(string.Format("{0}->{1}",counter++,val));
+                    Console.WriteLine(string.Format("GET#{0}->{1}",counter++,val));
+                }
+
+                counter = 0;
+                foreach(string val in _commandPOSTLst)
+                {
+                    Console.WriteLine(string.Format("POST#{0}->{1}",counter++,val));
                 }
 
                 Console.WriteLine("ret -> Return to main menu.");    
@@ -157,30 +203,39 @@ namespace APIClientPackage
         {
             try
             {
+                if((line < 0)||(line >= _commandGETLst.Count))
+                {
+                    _log.Error("Command index out of range:{0}",line);
+                    return;
+                }
+
+                _log.Info("ExecuteGETCommandAsync START cmd:{0}",_commandGETLst[line]);
+                Console.WriteLine("Executing cmd:{0}",_commandGETLst[line]);
+
                 _logTasks.LogMsgOnly(" ");
                 _logTasks.LogMsgOnly("@ @ @ @ @ @ @ @ @ @ @ @ EXECUTE GET REST @ @ @ @ @ @ @ @ @ @ @ @");
                 _logTasks.LogMsgOnly(string.Format("Path:{0}",_restPath));
                 _logTasks.LogMsgOnly(string.Format("Agent:{0}","User-Agent"));
                 _logTasks.LogMsgOnly(string.Format("With:{0}",".NET Foundation Repository Reporter"));
-                _logTasks.LogMsgOnly(string.Format("Command:{0}",_commandLst[line]));
+                _logTasks.LogMsgOnly(string.Format("Command:{0}",_commandGETLst[line]));
 
                 _client.BaseAddress = new Uri(_restPath);
-
-                // Add an Accept header for JSON format.  
-                //_client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-                // Add an Accept header for HTML format.  
                 _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
-                HttpResponseMessage response = _client.GetAsync(_commandLst[line]).Result;  // Blocking call!  
+                HttpResponseMessage response = _client.GetAsync(_commandGETLst[line]).Result;  // Blocking call!  
 
                 if (response.IsSuccessStatusCode)
                 {
                     _logTasks.LogMsgOnly("Request Message Information:- \n\n" + response.RequestMessage + "\n");
                     _logTasks.LogMsgOnly("Response Message Header \n\n" + response.Content.Headers + "\n");
+                    _log.Info("Request Message Information:- \n\n" + response.RequestMessage + "\n");
+                    _log.Info("Response Message Header \n\n" + response.Content.Headers + "\n");
+                    Console.WriteLine("Command executed with SUCCESS!");
                 }
                 else
                 {
                     _logTasks.LogMsgOnly("{0} ({1})", (int)response.StatusCode, response.ReasonPhrase);
+                    _log.Info("{0} ({1})", (int)response.StatusCode, response.ReasonPhrase);
+                    Console.WriteLine("ERROR executing Command!");
                 }
             }
             catch (Exception ex)
@@ -201,11 +256,20 @@ namespace APIClientPackage
             }
         }
 
-        private async Task ExecutePOSTCommandAsync(int line )
+        private async Task ExecutePOSTCommandAsync(int line)
         {
             try
             {
-                string[] dataLineAll = _commandLst[line].Split(' ');
+                if((line < 0)||(line >= _commandPOSTLst.Count))
+                {
+                    _log.Error("Command index out of range:{0}",line);
+                    return;
+                }
+
+                _log.Info("ExecuteGETCommandAsync START cmd:{0}",_commandPOSTLst[line]);                
+                Console.WriteLine("Executing cmd:{0}",_commandPOSTLst[line]);
+
+                string[] dataLineAll = _commandPOSTLst[line].Split(' ');
                 string url = dataLineAll[0];
                 string paramters = dataLineAll[1];
 
@@ -214,20 +278,25 @@ namespace APIClientPackage
                 _logTasks.LogMsgOnly(string.Format("Path:{0}",_restPath));
                 _logTasks.LogMsgOnly(string.Format("Agent:{0}","User-Agent"));
                 _logTasks.LogMsgOnly(string.Format("With:{0}",".NET Foundation Repository Reporter"));
-                _logTasks.LogMsgOnly(string.Format("Command:{0}",_commandLst[line]));
+                _logTasks.LogMsgOnly(string.Format("Command:{0}",_commandPOSTLst[line]));
 
                 _client.BaseAddress = new Uri(_restPath);
                 System.Net.Http.HttpContent content = new StringContent(paramters, UTF8Encoding.UTF8, "application/json");
                 var response = _client.PostAsync(url, content).Result;                      
-                
+
                 if (response.IsSuccessStatusCode)
                 {
                     _logTasks.LogMsgOnly("Request Message Information:- \n\n" + response.RequestMessage + "\n");
                     _logTasks.LogMsgOnly("Response Message Header \n\n" + response.Content.Headers + "\n");
+                    _log.Info("Request Message Information:- \n\n" + response.RequestMessage + "\n");
+                    _log.Info("Response Message Header \n\n" + response.Content.Headers + "\n");
+                    Console.WriteLine("Command executed with SUCCESS!");
                 }
                 else
                 {
                     _logTasks.LogMsgOnly("{0} ({1})", (int)response.StatusCode, response.ReasonPhrase);
+                    _log.Info("{0} ({1})", (int)response.StatusCode, response.ReasonPhrase);
+                    Console.WriteLine("ERROR executing Command!");
                 }
             }
             catch (Exception ex)

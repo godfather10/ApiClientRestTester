@@ -7,7 +7,6 @@
 
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="5.0.0" />
-    <PackageReference Include="websocket-sharp" Version="1.0.0" />
   </ItemGroup>
 
 </Project>

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.WebSockets;
@@ -27,7 +28,7 @@ namespace APIClientPackage
         
         private List<string> _configurationLst = new List<string>();
 
-        private HttpClient _client = null;
+        //private HttpClient _client = null;
 
         private ClientWebSocket _ws = null;
 
@@ -46,7 +47,7 @@ namespace APIClientPackage
             _log = log;
             _logTasks = logTasks;            
             LoadConfiguration();            
-            SSLClient();
+            //SSLClient();
         }
 
         private async Task<int> WebSocketInitAsync()
@@ -66,7 +67,7 @@ namespace APIClientPackage
             }
         }
 
-        private int SSLClient()
+        private int SSLClient( ref HttpClient client )
         {            
             try
             {
@@ -77,7 +78,7 @@ namespace APIClientPackage
                 //clientHandler.CookieContainer = container;
                 
                 // Pass the handler to httpclient(from you are calling api)
-                _client = new HttpClient(clientHandler);
+                client = new HttpClient(clientHandler);
 
                 //X509Certificate2 cert = new X509Certificate2(certificateFileName, "", X509KeyStorageFlags.MachineKeySet);
                 //_ws.SslConfiguration.ClientCertificateSelectionCallback =
@@ -199,6 +200,47 @@ namespace APIClientPackage
             }
         }
 
+        private void BradcastMsg(string msg, bool bLogStatus, bool bLogFunctionality, bool bConsole)
+        {
+            try
+            {
+                if(bLogFunctionality)
+                {
+                    _logTasks.LogMsgOnly(msg);
+                }
+
+                if(bLogStatus)
+                {
+                    _log.Info(msg);
+                }
+
+                if(bConsole)
+                {
+                    Console.WriteLine(msg);                
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Error(ex.Message);
+                Console.WriteLine(ex.Message);
+                if(ex.HelpLink!=null)
+                {
+                    _log.Error(ex.HelpLink);
+                    Console.WriteLine(ex.HelpLink);
+                }
+                if(ex.StackTrace!=null)
+                {
+                    _log.Error(ex.StackTrace);
+                    Console.WriteLine(ex.StackTrace);
+                }
+                if(ex.TargetSite!=null)
+                {
+                    _log.Error(ex.TargetSite.ToString());                
+                    Console.WriteLine(ex.TargetSite.ToString());
+                }
+            }
+        }
+
         private async Task ExecuteGETCommandAsync(int line)
         {
             try
@@ -209,8 +251,8 @@ namespace APIClientPackage
                     return;
                 }
 
-                _log.Info("ExecuteGETCommandAsync START cmd:{0}",_commandGETLst[line]);
-                Console.WriteLine("Executing cmd:{0}",_commandGETLst[line]);
+                BradcastMsg(string.Format("ExecuteGETCommandAsync START cmd:{0}",_commandGETLst[line]),
+                            true, false, true);
 
                 _logTasks.LogMsgOnly(" ");
                 _logTasks.LogMsgOnly("@ @ @ @ @ @ @ @ @ @ @ @ EXECUTE GET REST @ @ @ @ @ @ @ @ @ @ @ @");
@@ -219,39 +261,42 @@ namespace APIClientPackage
                 _logTasks.LogMsgOnly(string.Format("With:{0}",".NET Foundation Repository Reporter"));
                 _logTasks.LogMsgOnly(string.Format("Command:{0}",_commandGETLst[line]));
 
-                _client.BaseAddress = new Uri(_restPath);
-                _client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
-                HttpResponseMessage response = _client.GetAsync(_commandGETLst[line]).Result;  // Blocking call!  
+                HttpClient client = new HttpClient();
+                SSLClient( ref client );
+                client.BaseAddress = new Uri(_restPath);
+
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
+                client.DefaultRequestHeaders.Connection.Add("keep-alive");
+
+                HttpResponseMessage response = client.GetAsync(_commandGETLst[line]).Result;  // Blocking call!  
 
                 if (response.IsSuccessStatusCode)
                 {
-                    _logTasks.LogMsgOnly("Request Message Information:- \n\n" + response.RequestMessage + "\n");
-                    _logTasks.LogMsgOnly("Response Message Header \n\n" + response.Content.Headers + "\n");
-                    _log.Info("Request Message Information:- \n\n" + response.RequestMessage + "\n");
-                    _log.Info("Response Message Header \n\n" + response.Content.Headers + "\n");
-                    Console.WriteLine("Command executed with SUCCESS!");
+                    BradcastMsg("Request Message Information:- \n\n" + response.RequestMessage + "\n",
+                                 true, true, true);
+                    BradcastMsg("Response Message Header \n\n" + response.Content.Headers + "\n",
+                                 true, true, true);
                 }
                 else
                 {
-                    _logTasks.LogMsgOnly("{0} ({1})", (int)response.StatusCode, response.ReasonPhrase);
-                    _log.Info("{0} ({1})", (int)response.StatusCode, response.ReasonPhrase);
-                    Console.WriteLine("ERROR executing Command!");
+                    BradcastMsg(string.Format("{0} ({1})", (int)response.StatusCode, response.ReasonPhrase),
+                                 true, true, true);
                 }
             }
             catch (Exception ex)
             {
-                _log.Error(ex.Message);
+                BradcastMsg(ex.Message, true, false, true);
                 if(ex.HelpLink!=null)
                 {
-                    _log.Error(ex.HelpLink);
+                    BradcastMsg(ex.HelpLink, true, false, true);
                 }
                 if(ex.StackTrace!=null)
                 {
-                    _log.Error(ex.StackTrace);
+                    BradcastMsg(ex.StackTrace, true, false, true);
                 }
                 if(ex.TargetSite!=null)
                 {
-                    _log.Error(ex.TargetSite.ToString());                
+                    BradcastMsg(ex.TargetSite.ToString(), true, false, true);
                 }
             }
         }
@@ -266,10 +311,10 @@ namespace APIClientPackage
                     return;
                 }
 
-                _log.Info("ExecuteGETCommandAsync START cmd:{0}",_commandPOSTLst[line]);                
-                Console.WriteLine("Executing cmd:{0}",_commandPOSTLst[line]);
+                BradcastMsg(string.Format("ExecutePOSTCommandAsync START cmd:{0}",_commandGETLst[line]),
+                            true, false, true);
 
-                string[] dataLineAll = _commandPOSTLst[line].Split(' ');
+                string[] dataLineAll = _commandPOSTLst[line].Split('#');
                 string url = dataLineAll[0];
                 string paramters = dataLineAll[1];
 
@@ -280,39 +325,41 @@ namespace APIClientPackage
                 _logTasks.LogMsgOnly(string.Format("With:{0}",".NET Foundation Repository Reporter"));
                 _logTasks.LogMsgOnly(string.Format("Command:{0}",_commandPOSTLst[line]));
 
-                _client.BaseAddress = new Uri(_restPath);
-                System.Net.Http.HttpContent content = new StringContent(paramters, UTF8Encoding.UTF8, "application/json");
-                var response = _client.PostAsync(url, content).Result;                      
+                HttpClient client = new HttpClient();
+                SSLClient( ref client );
+                client.BaseAddress = new Uri(_restPath);
+
+                System.Net.Http.HttpContent content = new StringContent(paramters, UTF8Encoding.UTF8, "text/html");
+                
+                var response = client.PostAsync(url, content).Result;                      
 
                 if (response.IsSuccessStatusCode)
                 {
-                    _logTasks.LogMsgOnly("Request Message Information:- \n\n" + response.RequestMessage + "\n");
-                    _logTasks.LogMsgOnly("Response Message Header \n\n" + response.Content.Headers + "\n");
-                    _log.Info("Request Message Information:- \n\n" + response.RequestMessage + "\n");
-                    _log.Info("Response Message Header \n\n" + response.Content.Headers + "\n");
-                    Console.WriteLine("Command executed with SUCCESS!");
+                    BradcastMsg("Request Message Information:- \n\n" + response.RequestMessage + "\n",
+                                 true, true, true);
+                    BradcastMsg("Response Message Header \n\n" + response.Content.Headers + "\n",
+                                 true, true, true);
                 }
                 else
                 {
-                    _logTasks.LogMsgOnly("{0} ({1})", (int)response.StatusCode, response.ReasonPhrase);
-                    _log.Info("{0} ({1})", (int)response.StatusCode, response.ReasonPhrase);
-                    Console.WriteLine("ERROR executing Command!");
+                    BradcastMsg(string.Format("{0} ({1})", (int)response.StatusCode, response.ReasonPhrase),
+                                 true, true, true);
                 }
             }
             catch (Exception ex)
             {
-                _log.Error(ex.Message);
+                BradcastMsg(ex.Message, true, false, true);
                 if(ex.HelpLink!=null)
                 {
-                    _log.Error(ex.HelpLink);
+                    BradcastMsg(ex.HelpLink, true, false, true);
                 }
                 if(ex.StackTrace!=null)
                 {
-                    _log.Error(ex.StackTrace);
+                    BradcastMsg(ex.StackTrace, true, false, true);
                 }
                 if(ex.TargetSite!=null)
                 {
-                    _log.Error(ex.TargetSite.ToString());                
+                    BradcastMsg(ex.TargetSite.ToString(), true, false, true);
                 }
             }
         }
@@ -321,12 +368,14 @@ namespace APIClientPackage
         {
                 try
                 {
-                    _client.DefaultRequestHeaders.Accept.Clear();
-                    _client.DefaultRequestHeaders.Accept.Add(
+                    HttpClient client = new HttpClient();
+                
+                    client.DefaultRequestHeaders.Accept.Clear();
+                    client.DefaultRequestHeaders.Accept.Add(
                         new MediaTypeWithQualityHeaderValue("application/vnd.github.v3+json"));
-                    _client.DefaultRequestHeaders.Add("User-Agent", ".NET Foundation Repository Reporter");
+                    client.DefaultRequestHeaders.Add("User-Agent", ".NET Foundation Repository Reporter");
 
-                    var stringTask = _client.GetStringAsync("https://api.github.com/orgs/dotnet/repos");
+                    var stringTask = client.GetStringAsync("https://api.github.com/orgs/dotnet/repos");
 
                     var msg = await stringTask;
                     Console.Write(msg);
@@ -383,7 +432,7 @@ namespace APIClientPackage
                     string[] dataLineAll = commandStr.Split('#');
 
                     await ExecutePOSTCommandAsync(int.Parse(dataLineAll[1]));
-                }                      
+                }                                                  
                 else if(menuToPrint == 1) // Configuration Info
                 {
                     if(commandStr.ToLower() == "ret")
